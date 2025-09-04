@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Planner de Tarefas</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pacifico&family=Inter:wght@400;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8;
+            color: #334155;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        .title {
+            font-family: 'Pacifico', cursive;
+            color: #1e3a8a;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        }
+        .task-list {
+            list-style: none;
+            padding: 0;
+        }
+        .task-item {
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .task-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .icon-uncompleted {
+            color: #d1d5db;
+        }
+        .icon-completed {
+            color: #22c55e;
+            animation: pulse-check 0.5s ease;
+        }
+        .person-card {
+            background-color: white;
+            border-radius: 1rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
+        }
+        .person-card:hover {
+            transform: scale(1.02);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+        .status-button {
+            transition: all 0.2s ease;
+        }
+        @keyframes pulse-check {
+            0% { transform: scale(0.5); opacity: 0; }
+            50% { transform: scale(1.2); opacity: 1; }
+            100% { transform: scale(1); }
+        }
+        .no-tasks-message {
+            color: #6b7280;
+        }
+        .button-group {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+        .action-button {
+            padding: 0.75rem 1.5rem;
+            border-radius: 9999px;
+            font-weight: 700;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .action-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 8px rgba(0,0,0,0.15);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-r from-blue-200 via-purple-200 to-pink-200">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="title text-5xl font-bold text-center mb-10">Planner Diário</h1>
+
+        <!-- Colunas para as pessoas -->
+        <div id="people-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- As colunas serão renderizadas aqui pelo JavaScript -->
+        </div>
+
+        <div id="message-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50 hidden">
+            <div class="bg-white p-8 rounded-xl shadow-lg transform transition-all sm:w-full sm:max-w-md">
+                <h3 class="text-xl font-bold text-gray-800 mb-4" id="modal-title"></h3>
+                <p class="text-gray-600 mb-6" id="modal-message"></p>
+                <div class="flex justify-end">
+                    <button id="modal-close-btn" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">Fechar</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script type="module">
+        // Use uma variável global para o app ID para que o Canvas possa injetá-la
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // Use uma variável global para a configuração do Firebase para que o Canvas possa injetá-la
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        
+        // Use uma variável global para o token de autenticação
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // Importações do Firebase
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, collection, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Variáveis globais do Firebase
+        let app = null;
+        let db = null;
+        let auth = null;
+        let userId = null;
+
+        // Dados do planner
+        let plannerData = {};
+
+        // Dados de exemplo, para iniciar a interface
+        const initialData = {
+            "João": {
+                tasks: [
+                    { name: "Lavar a louça", completed: false },
+                    { name: "Arrumar a cama", completed: false },
+                    { name: "Regar as plantas", completed: false }
+                ]
+            },
+            "Maria": {
+                tasks: [
+                    { name: "Fazer compras", completed: false },
+                    { name: "Passear com o cachorro", completed: false },
+                    { name: "Limpar o banheiro", completed: false }
+                ]
+            },
+            "Pedro": {
+                tasks: [
+                    { name: "Pagar as contas", completed: false },
+                    { name: "Estudar", completed: false },
+                    { name: "Preparar o jantar", completed: false }
+                ]
+            }
+        };
+
+        // Função para mostrar um modal de mensagem
+        function showModal(title, message) {
+            const modal = document.getElementById('message-modal');
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('modal-message').innerText = message;
+            modal.classList.remove('hidden');
+        }
+
+        // Função para fechar o modal
+        function hideModal() {
+            const modal = document.getElementById('message-modal');
+            modal.classList.add('hidden');
+        }
+
+        document.getElementById('modal-close-btn').addEventListener('click', hideModal);
+
+        // Função de inicialização do Firebase e autenticação
+        async function initializeFirebase() {
+            try {
+                if (firebaseConfig) {
+                    app = initializeApp(firebaseConfig);
+                    db = getFirestore(app);
+                    auth = getAuth(app);
+
+                    // Autenticar com o token personalizado se disponível, caso contrário, anonimamente
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+
+                    // Ouvir o estado de autenticação para obter o userId
+                    onAuthStateChanged(auth, (user) => {
+                        if (user) {
+                            userId = user.uid;
+                            console.log("Usuário autenticado:", userId);
+                            setupRealtimeListener();
+                        } else {
+                            userId = null;
+                            console.log("Nenhum usuário logado. As alterações não serão salvas.");
+                            // Renderizar a UI inicial para o caso de não haver autenticação
+                            plannerData = initialData;
+                            renderPlanner();
+                        }
+                    });
+                } else {
+                    console.error("Firebase config não está disponível. Usando dados de exemplo.");
+                    plannerData = initialData;
+                    renderPlanner();
+                }
+            } catch (error) {
+                console.error("Erro ao inicializar o Firebase ou autenticar:", error);
+                showModal("Erro de Conexão", "Não foi possível conectar ao servidor. As alterações não serão salvas.");
+                plannerData = initialData;
+                renderPlanner();
+            }
+        }
+
+        // Configurar o ouvinte em tempo real para o Firestore
+        function setupRealtimeListener() {
+            if (!db || !userId) {
+                console.error("Firestore não inicializado ou userId não disponível.");
+                return;
+            }
+
+            const docRef = doc(db, `artifacts/${appId}/public/data/planners`, "daily-planner");
+            
+            onSnapshot(docRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    plannerData = docSnap.data().data;
+                    console.log("Dados atualizados recebidos:", plannerData);
+                } else {
+                    console.log("Nenhum dado encontrado, inicializando com dados padrão.");
+                    plannerData = initialData;
+                    // Salvar os dados iniciais no banco de dados para que outros usuários possam ver
+                    savePlannerData(plannerData);
+                }
+                renderPlanner();
+            }, (error) => {
+                console.error("Erro ao ouvir em tempo real:", error);
+                showModal("Erro de Sincronização", "Não foi possível sincronizar com o servidor. Verifique sua conexão.");
+            });
+        }
+
+        // Salvar os dados no Firestore
+        async function savePlannerData(data) {
+            if (!db || !userId) {
+                console.error("Não é possível salvar. Firestore não inicializado ou userId não disponível.");
+                showModal("Erro de Salvar", "Não foi possível salvar os dados. Por favor, recarregue a página.");
+                return;
+            }
+
+            const docRef = doc(db, `artifacts/${appId}/public/data/planners`, "daily-planner");
+            try {
+                await setDoc(docRef, { data: data, lastUpdated: new Date() });
+                console.log("Dados do planner salvos com sucesso!");
+            } catch (error) {
+                console.error("Erro ao salvar os dados:", error);
+                showModal("Erro de Salvar", "Não foi possível salvar os dados. Por favor, tente novamente.");
+            }
+        }
+
+        // Função para renderizar o planner com base nos dados
+        function renderPlanner() {
+            const container = document.getElementById('people-container');
+            container.innerHTML = ''; // Limpar o conteúdo anterior
+
+            Object.keys(plannerData).forEach(personName => {
+                const person = plannerData[personName];
+                const personCard = document.createElement('div');
+                personCard.className = 'person-card p-6';
+
+                const personTitle = document.createElement('h2');
+                personTitle.className = 'text-center text-3xl font-bold mb-4 text-gray-700';
+                personTitle.textContent = personName;
+                personCard.appendChild(personTitle);
+
+                const taskList = document.createElement('ul');
+                taskList.className = 'task-list';
+
+                if (person.tasks && person.tasks.length > 0) {
+                    person.tasks.forEach((task, taskIndex) => {
+                        const taskItem = document.createElement('li');
+                        taskItem.className = 'task-item flex items-center p-3 rounded-lg mb-2 bg-gray-50 hover:bg-gray-100';
+                        taskItem.addEventListener('click', () => toggleTask(personName, taskIndex));
+
+                        const icon = document.createElement('span');
+                        icon.className = `status-button text-2xl mr-4 ${task.completed ? 'icon-completed' : 'icon-uncompleted'}`;
+                        icon.innerHTML = task.completed ? '&#10003;' : '&#9675;'; // Símbolo de "check" e "círculo"
+
+                        const taskName = document.createElement('span');
+                        taskName.className = `flex-1 text-lg ${task.completed ? 'line-through text-gray-400' : 'text-gray-800'}`;
+                        taskName.textContent = task.name;
+
+                        taskItem.appendChild(icon);
+                        taskItem.appendChild(taskName);
+                        taskList.appendChild(taskItem);
+                    });
+                } else {
+                    const noTasksMessage = document.createElement('p');
+                    noTasksMessage.className = 'no-tasks-message text-center italic';
+                    noTasksMessage.textContent = 'Nenhuma tarefa para hoje!';
+                    taskList.appendChild(noTasksMessage);
+                }
+
+                personCard.appendChild(taskList);
+                container.appendChild(personCard);
+            });
+        }
+
+        // Função para alternar o estado de conclusão de uma tarefa
+        function toggleTask(personName, taskIndex) {
+            if (plannerData[personName] && plannerData[personName].tasks && plannerData[personName].tasks[taskIndex]) {
+                const updatedData = { ...plannerData };
+                updatedData[personName].tasks[taskIndex].completed = !updatedData[personName].tasks[taskIndex].completed;
+                savePlannerData(updatedData);
+            }
+        }
+
+        // Iniciar a aplicação
+        window.onload = initializeFirebase;
+    </script>
+</body>
+</html>
